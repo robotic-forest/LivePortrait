@@ -60,7 +60,7 @@ class LivePortraitWrapper(object):
         else:
             self.stitching_retargeting_module = None
         # Optimize for inference
-        if self.compile:
+        if self.compile and not self.inference_cfg.flag_force_cpu:
             torch._dynamo.config.suppress_errors = True  # Suppress errors and fall back to eager execution
             self.warping_module = torch.compile(self.warping_module, mode='max-autotune')
             self.spade_generator = torch.compile(self.spade_generator, mode='max-autotune')
@@ -68,7 +68,9 @@ class LivePortraitWrapper(object):
         self.timer = Timer()
 
     def inference_ctx(self):
-        if self.device == "mps":
+        if self.device == "cpu":
+            ctx = contextlib.nullcontext()
+        elif self.device == "mps":
             ctx = contextlib.nullcontext()
         else:
             ctx = torch.autocast(device_type=self.device[:4], dtype=torch.float16,

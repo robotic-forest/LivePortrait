@@ -1,0 +1,1 @@
+python inference_with_pose.py -s assets/examples/source/s0.jpg -o animations/ --pitch 10 --yaw -10 --roll 5 --flag_force_cpu 

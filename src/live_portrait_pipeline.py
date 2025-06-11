@@ -32,6 +32,13 @@ def make_abs_path(fn):
     return osp.join(osp.dirname(osp.realpath(__file__)), fn)
 
 
+def modify_pose(exp, pitch, yaw, roll):
+    exp[0, 1] += pitch
+    exp[0, 2] += yaw
+    exp[0, 3] += roll
+    return exp
+
+
 class LivePortraitPipeline(object):
 
     def __init__(self, inference_cfg: InferenceConfig, crop_cfg: CropConfig):
@@ -103,7 +110,56 @@ class LivePortraitPipeline(object):
         driving_rgb_crop_256x256_lst = None
         wfp_template = None
 
-        if flag_load_from_template:
+        if args.pitch is not None and args.yaw is not None and args.roll is not None:
+            log("Using provided pitch, yaw, roll for driving motion.", style="bold green")
+            inf_cfg.flag_relative_motion = False
+            flag_is_driving_video = False
+            output_fps = 25
+            n_frames = 1
+
+            if inf_cfg.flag_do_crop:
+                crop_info = self.cropper.crop_source_image(source_rgb_lst[0], crop_cfg)
+                if crop_info is None:
+                    raise Exception("No face detected in the source image!")
+                source_lmk = crop_info['lmk_crop']
+                img_crop_256x256 = crop_info['img_crop_256x256']
+            else:
+                source_lmk = self.cropper.calc_lmk_from_cropped_image(source_rgb_lst[0])
+                img_crop_256x256 = cv2.resize(source_rgb_lst[0], (256, 256))
+
+            I_s = self.live_portrait_wrapper.prepare_source(img_crop_256x256)
+            c_s_eyes_lst, c_s_lip_lst = self.live_portrait_wrapper.calc_ratio([source_lmk])
+            
+            x_s_info = self.live_portrait_wrapper.get_kp_info(I_s)
+            
+            x_d_info_custom = x_s_info.copy()
+            x_d_info_custom['pitch'] = torch.tensor([[args.pitch]], device=device, dtype=torch.float32)
+            x_d_info_custom['yaw'] = torch.tensor([[args.yaw]], device=device, dtype=torch.float32)
+            x_d_info_custom['roll'] = torch.tensor([[args.roll]], device=device, dtype=torch.float32)
+
+            x_d_trans = self.live_portrait_wrapper.transform_keypoint(x_d_info_custom)
+            R_d = get_rotation_matrix(x_d_info_custom['pitch'], x_d_info_custom['yaw'], x_d_info_custom['roll'])
+
+            item_dct = {
+                'scale': x_d_info_custom['scale'].cpu().numpy().astype(np.float32),
+                'R': R_d.cpu().numpy().astype(np.float32),
+                'exp': x_d_info_custom['exp'].cpu().numpy().astype(np.float32),
+                't': x_d_info_custom['t'].cpu().numpy().astype(np.float32),
+                'kp': x_d_info_custom['kp'].cpu().numpy().astype(np.float32),
+                'x_s': x_d_trans.cpu().numpy().astype(np.float32),
+            }
+
+            driving_template_dct = {
+                'n_frames': 1,
+                'output_fps': 25,
+                'motion': [item_dct],
+                'c_eyes_lst': c_s_eyes_lst,
+                'c_lip_lst': c_s_lip_lst,
+            }
+            c_d_eyes_lst = c_s_eyes_lst
+            c_d_lip_lst = c_s_lip_lst
+
+        elif flag_load_from_template:
             # NOTE: load from template, it is fast, but the cropping video is None
             log(f"Load from template: {args.driving}, NOT the video, so the cropping video and audio are both NULL.", style='bold green')
             driving_template_dct = load(args.driving)
