@@ -8,6 +8,7 @@ import os
 import os.path as osp
 import tyro
 import subprocess
+import time
 from src.config.argument_config import ArgumentConfig
 from src.config.inference_config import InferenceConfig
 from src.config.crop_config import CropConfig
@@ -35,6 +36,25 @@ def fast_check_args(args: ArgumentConfig):
             raise FileNotFoundError(f"driving info not found: {args.driving}")
 
 
+class Timer:
+    def __init__(self):
+        self.reset()
+
+    def tic(self, name):
+        self.starts[name] = time.perf_counter()
+
+    def toc(self, name):
+        if name in self.starts:
+            self.timings[name] = time.perf_counter() - self.starts[name]
+
+    def reset(self):
+        self.timings = {}
+        self.starts = {}
+
+    def summary(self):
+        return {k: f"{v:.6f}s" for k, v in self.timings.items()}
+
+
 def main():
     # set tyro theme
     tyro.extras.set_accent_color("bright_cyan")
@@ -55,13 +75,19 @@ def main():
     inference_cfg = partial_fields(InferenceConfig, args.__dict__)
     crop_cfg = partial_fields(CropConfig, args.__dict__)
 
+    timer = Timer()
     live_portrait_pipeline = LivePortraitPipeline(
         inference_cfg=inference_cfg,
-        crop_cfg=crop_cfg
+        crop_cfg=crop_cfg,
+        timer=timer
     )
 
     # run
     live_portrait_pipeline.execute(args)
+
+    print("Timing Summary:")
+    for name, duration in timer.summary().items():
+        print(f"- {name}: {duration}")
 
 
 if __name__ == "__main__":
